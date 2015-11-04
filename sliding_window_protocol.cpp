@@ -11,6 +11,7 @@ extern void SendFRAMEPacket(unsigned char* pData, unsigned int len);
 int stud_slide_window_stop_and_wait(char *pBuffer, int bufferSize, UINT8 messageType)
 {
 	return 0;
+    return 0;
 }
 
 /*
