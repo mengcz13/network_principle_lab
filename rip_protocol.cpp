@@ -28,23 +28,30 @@ struct RIPpac {
     }
 };
 //制作与iNo对应的rip包,注意其中不含有与iNo相同的entry(水平分裂算法)
-void make_res_rip_pac(RIPpac* resrippac, UINT16* len, UINT8 iNo) {
-    resrippac->command = 2;
-    int entrytail = 0;
-    stud_rip_route_node* pointer = g_rip_route_table;
+void make_res_rip_pac(stud_rip_route_node* linkhead, UINT8 iNo) {
+    RIPpac resrippac;
+    stud_rip_route_node* pointer = linkhead;
     while (pointer != NULL) {
-        if (pointer->if_no != iNo) {
-            resrippac->ripentry[entrytail].afi = htons(2);
-            resrippac->ripentry[entrytail].rt = 0;
-            resrippac->ripentry[entrytail].dest = htonl(pointer->dest);
-            resrippac->ripentry[entrytail].mask = htonl(pointer->mask);
-            resrippac->ripentry[entrytail].nexthop = htonl(pointer->nexthop);
-            resrippac->ripentry[entrytail].metric = htonl(pointer->metric);
-            ++entrytail;
+        memset(&resrippac, 0, sizeof(RIPpac));
+        UINT16 len = 0;
+        resrippac.command = 2;
+        resrippac.version = 2;
+        int entrytail = 0;
+        while (pointer != NULL && entrytail < 25) { //每个包最大25个表项
+            if (pointer->if_no != iNo) {
+                resrippac.ripentry[entrytail].afi = htons(2);
+                resrippac.ripentry[entrytail].rt = 0;
+                resrippac.ripentry[entrytail].dest = htonl(pointer->dest);
+                resrippac.ripentry[entrytail].mask = htonl(pointer->mask);
+                resrippac.ripentry[entrytail].nexthop = htonl(pointer->nexthop);
+                resrippac.ripentry[entrytail].metric = htonl(pointer->metric);
+                ++entrytail;
+            }
+            pointer = pointer->next;
         }
-        pointer = pointer->next;
+        len = 1 + 1 + 2 + entrytail * sizeof(RIPEntry);
+        rip_sendIpPkt((unsigned char*)(&resrippac), len, DSTPORT, iNo);
     }
-    (*len) = 1 + 1 + 2 + entrytail * sizeof(RIPEntry);
 }
 //根据IP和Mask找到表项
 stud_rip_route_node* find_entry(unsigned int dest, unsigned int mask) {
@@ -75,8 +82,7 @@ int stud_rip_packet_recv(char *pBuffer,int bufferSize,UINT8 iNo,UINT32 srcAdd)
     if (command == 1) { //request,发送回当前表项
         RIPpac resrippac;
         UINT16 len = 0;
-        make_res_rip_pac(&resrippac, &len, iNo);
-        rip_sendIpPkt((unsigned char*)(&resrippac), len, DSTPORT, iNo);
+        make_res_rip_pac(g_rip_route_table, iNo);
     }
     else if (command == 2) { //response,修改表项
         RIPpac* formatted = (RIPpac*)pBuffer;
@@ -120,10 +126,8 @@ void stud_rip_route_timeout(UINT32 destAdd, UINT32 mask, unsigned char msgType)
     if (msgType == RIP_MSG_SEND_ROUTE) {
         RIPpac rippac;
         UINT16 len = 0;
-        make_res_rip_pac(&rippac, &len, 1);
-        rip_sendIpPkt((unsigned char*)(&rippac), len, DSTPORT, 1);
-        make_res_rip_pac(&rippac, &len, 2);
-        rip_sendIpPkt((unsigned char*)(&rippac), len, DSTPORT, 2);
+        make_res_rip_pac(g_rip_route_table, 1);
+        make_res_rip_pac(g_rip_route_table, 2);
     }
     else if (msgType == RIP_MSG_DELE_ROUTE) {
         stud_rip_route_node* pointer = find_entry(destAdd, mask);
